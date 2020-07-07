@@ -49,7 +49,7 @@ def module_write (a, write_file):
 def mpu_always (rtl_write):
 	module_write(first_line+" : read_data_from_sfr_blk //{".upper(), rtl_write)
 	module_write("    if (~reset_n)", rtl_write)
-	module_write("      mpu_rdata <= 32'h0;", rtl_write)
+	module_write("      mpu_rdata <= {DATA_WIDTH{1'b0}};", rtl_write)
 	module_write("    else begin //{", rtl_write)
 	module_write("      mpu_rdata <= mpu_rdata_combo;", rtl_write)
 	module_write("    end //}", rtl_write)
@@ -224,8 +224,8 @@ def joining(i,end_character):
 			
 def interface_names(total_registers, write_rtl, data_width = 32, addr_width = 32, align_space = 35):
         
-        module_write("  %-*s          clk," %(15,"input "), write_rtl)
-        module_write("  %-*s          reset_n," %(15,"input "), write_rtl)
+        module_write("  %-*s          clk," %(align_space-9,"input "), write_rtl)
+        module_write("  %-*s          reset_n," %(align_space-9,"input "), write_rtl)
 	
         for i in range(len(total_registers.registers)):
 	        module_write("\n //"+total_registers.registers[i].register["name"]+" : " + total_registers.registers[i].register["addressOffset"], write_rtl)
@@ -267,7 +267,7 @@ def interface_names(total_registers, write_rtl, data_width = 32, addr_width = 32
 def read_write_def(total_registers, rtl_write):
 	for i in range(len(total_registers.registers)):
 		module_write(" assign "+total_registers.registers[i].register["write_signal_name"]+" = mpu_we & (mpu_wr_addr == "+re.sub("0x","32'h",total_registers.registers[i].register["addressOffset"])+");", rtl_write)
-		module_write(" assign "+total_registers.registers[i].register["read_signal_name"]+"  = mpu_re & (mpu_rd_addr == "+re.sub("0x","32'h",total_registers.registers[i].register["addressOffset"])+");\n\n", rtl_write)
+		module_write(" assign "+total_registers.registers[i].register["read_signal_name"] +" = mpu_re & (mpu_rd_addr == "+re.sub("0x","32'h",total_registers.registers[i].register["addressOffset"])+");\n\n", rtl_write)
 
 
 
@@ -304,11 +304,12 @@ def combo_always(total_registers,i, rtl_write, data_width = 32):
 		reg_name = total_registers.registers[i].register["name"]
 		address_val = total_registers.registers[i].register["addressOffset"]
 		module_write("\n\n always @(*) begin : "+reg_name.lower()+"_"+address_val+"_blk //{", rtl_write)
+		reg_len = len(total_registers.registers[i].register["ro_name"])
 		if total_registers.registers[i].fields_data[0]["bitWidth"] != data_width:
-			module_write("   "+total_registers.registers[i].register["ro_name"]+"    = {DATA_WIDTH{1'b0}};", rtl_write)
+			module_write("   %-*s = %s;" %(reg_len+12,total_registers.registers[i].register["ro_name"], "{DATA_WIDTH{1'b0}}"), rtl_write)
 		for j in range(total_registers.registers[i].register["no_of_fields"]) :
 			if total_registers.registers[i].fields_data[j]["fw_access"] == "RW":
-				module_write("   "+total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"]+ " = "+total_registers.registers[i].fields_data[j]["actual_name"]+";", rtl_write)
+				module_write("   %-*s = %s;" %(reg_len + 12, total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"], total_registers.registers[i].fields_data[j]["actual_name"]), rtl_write)
 			elif total_registers.registers[i].fields_data[j]["fw_access"] == "WO":
 				module_write("   "+total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"]+ " = "+total_registers.registers[i].register["read_signal_name"]+" ? "+str(total_registers.registers[i].fields_data[j]["bitWidth"])+"'h0"+" : "+total_registers.registers[i].fields_data[j]["actual_name"]+";", rtl_write)
 			else:
@@ -327,11 +328,11 @@ def writing_always_read(total_registers,case, rtl_write):
         else:
                 for i in range(len(total_registers.registers)):
                         if i == 0:
-                                module_write("  assign mpu_rdata_combo = ({32{"+total_registers.registers[i].register["read_signal_name"]+"}} & "+total_registers.registers[i].register["ro_name"]+") |", rtl_write)
+                                module_write("  assign mpu_rdata_combo = ({DATA_WIDTH{"+total_registers.registers[i].register["read_signal_name"]+"}} & "+total_registers.registers[i].register["ro_name"]+") |", rtl_write)
                         elif i == len(total_registers.registers) - 1:
-                                module_write("                           ({32{"+total_registers.registers[i].register["read_signal_name"]+"}} & "+total_registers.registers[i].register["ro_name"]+");", rtl_write)
+                                module_write("                           ({DATA_WIDTH{"+total_registers.registers[i].register["read_signal_name"]+"}} & "+total_registers.registers[i].register["ro_name"]+");", rtl_write)
                         else:
-                                module_write("                           ({32{"+total_registers.registers[i].register["read_signal_name"]+"}} & "+total_registers.registers[i].register["ro_name"]+") |", rtl_write)
+                                module_write("                           ({DATA_WIDTH{"+total_registers.registers[i].register["read_signal_name"]+"}} & "+total_registers.registers[i].register["ro_name"]+") |", rtl_write)
         module_write("\n\n", rtl_write)
 
 
@@ -349,7 +350,7 @@ def writing_always_read_case(total_registers, rtl_write):
         for i in range(len(total_registers.registers)):
                 #module_write("     "+total_registers.registers[i].register["read_signal_name"]+": mpu_rdata_combo = "+total_registers.registers[i].register["ro_name"]+";")
                 module_write("      %-*s : mpu_rdata_combo = %s;" %(max_length+2,total_registers.registers[i].register["read_signal_name"], total_registers.registers[i].register["ro_name"]), rtl_write)
-        module_write("      %-*s : mpu_rdata_combo = 32'b0;" %(max_length+2,"default"), rtl_write)
+        module_write("      %-*s : mpu_rdata_combo = {DATA_WIDTH{1'b0}};" %(max_length+2,"default"), rtl_write)
         module_write("   endcase", rtl_write)
         module_write(" end //}", rtl_write)
 
@@ -363,16 +364,16 @@ def reg_ro(total_registers):
 	module_write("//============================================================================/n/n", rtl_write)
 
 
-def wire_declaration(total_registers, case, write_rtl):
+def wire_declaration(total_registers, case, write_rtl, align_space = 35):
         module_write("//==============================Wire Declaration==============================\n", write_rtl)
         for i in range(len(total_registers.registers)):
                 for j in range(total_registers.registers[i].register["no_of_fields"]):
                         if total_registers.registers[i].fields_data[j]["generate"]:
-                                module_write("  %-*s %s;" %(20, "wire        "+total_registers.registers[i].fields_data[j]["bit_square"], "rst_"+total_registers.registers[i].fields_data[j]["actual_name"]), write_rtl)
+                                module_write("  %-*s %s;" %(align_space, "wire        "+total_registers.registers[i].fields_data[j]["bit_square"], "rst_"+total_registers.registers[i].fields_data[j]["actual_name"]), write_rtl)
         if case:
-                module_write("  %-*s %s;\n" %(20, "reg         [31:0] ", "mpu_rdata_combo"), write_rtl)
+                module_write("  %-*s %s;\n" %(align_space, "reg         [DATA_WIDTH - 1:0] ", "mpu_rdata_combo"), write_rtl)
         else:
-                module_write("  %-*s %s;\n" %(20, "wire        [31:0] ", "mpu_rdata_combo"), write_rtl)
+                module_write("  %-*s %s;\n" %(align_space, "wire        [DATA_WIDTH - 1:0] ", "mpu_rdata_combo"), write_rtl)
         module_write("  genvar       i;\n", write_rtl)
         module_write("//============================================================================\n\n", write_rtl)
 
@@ -553,9 +554,9 @@ def sfr_verilog_code(xml, module_name, data_width = 32, addr_width = 32):
         #module_write("*/\n\n")
 
         module_write("module "+sfr_module_name+" #(", rtl_write)
-	module_write("  parameter DATA_WIDTH = "+data_width+",", rtl_write)
-	module_write("  parameter STROBE_WIDTH = DATA_WIDTH/8,", rtl_write)
-	module_write("  parameter ADDR_WIDTH = "+addr_width+") (", rtl_write)
+        module_write("  parameter DATA_WIDTH     = "+str(data_width)+",", rtl_write)
+        module_write("  parameter STROBE_WIDTH   = DATA_WIDTH/8,", rtl_write)
+        module_write("  parameter ADDR_WIDTH     = "+str(addr_width)+") (\n", rtl_write)
         interface_names(total_registers, rtl_write)
         #reg_ro(total_registers)
         wire_declaration(total_registers, case, rtl_write)
