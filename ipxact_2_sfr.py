@@ -58,52 +58,86 @@ def mpu_always (rtl_write):
 	module_write("    if (~reset_n)", rtl_write)
 	module_write("      mpu_rvalid <= 1'b0;", rtl_write)
 	module_write("    else begin //{", rtl_write)
-	module_write("      mpu_rvalid <= mpu_rstrobe;", rtl_write)
+	module_write("      mpu_rvalid <= mpu_re;", rtl_write)
 	module_write("    end //}", rtl_write)
 	module_write("  end //}\n\n", rtl_write)
 	module_write(first_line+" : write_ready_from_sfr_blk //{".upper(), rtl_write)
 	module_write("    if (~reset_n)", rtl_write)
 	module_write("      mpu_wready <= 1'b0;", rtl_write)
 	module_write("    else begin //{", rtl_write)
-	module_write("      mpu_wready <= mpu_wstrobe;", rtl_write)
+	module_write("      mpu_wready <= mpu_we;", rtl_write)
 	module_write("    end //}", rtl_write)
 	module_write("  end //}\n\n", rtl_write)
 	module_write("endmodule\n", rtl_write)
 
-def rw_non_volatile(register_name,i, rtl_write):
-	field_name = register_name.fields_data[i]["actual_name"].upper()
-	module_write(first_line+" : "+field_name.lower()+"_blk //{", rtl_write)
-	module_write("    if (~reset_n)", rtl_write)
-	module_write("      "+register_name.fields_data[i]["actual_name"]+" <= "+register_name.fields_data[i]["_resetValue_"]+";", rtl_write)
-	module_write("    else begin //{", rtl_write)
-	module_write("      if ("+register_name.register["write_signal_name"]+")", rtl_write)
-	module_write("        "+register_name.fields_data[i]["actual_name"]+" <= mpu_wdata"+register_name.fields_data[i]["bit_position"]+";", rtl_write)
-	module_write("    end //}", rtl_write)
-	module_write("  end //}", rtl_write)
+def rw_non_volatile(register_name,i, rtl_write, strobe = 0):
+    '''
+	For fields which is are only FW RW
+    '''
+    field_name = register_name.fields_data[i]["actual_name"].upper()
+    module_write(first_line+" : "+field_name.lower()+"_blk //{", rtl_write)
+    module_write("    if (~reset_n)", rtl_write)
+    module_write("      "+register_name.fields_data[i]["actual_name"]+" <= "+register_name.fields_data[i]["_resetValue_"]+";", rtl_write)
+    module_write("    else begin //{", rtl_write)
+    if strobe:
+        module_write("      if ("+register_name.register["write_signal_name_strobe"]+register_name.fields_data[i]["bit_position"]+")", rtl_write)
+    else:
+        module_write("      if ("+register_name.register["write_signal_name"]+")", rtl_write)
+    module_write("        "+register_name.fields_data[i]["actual_name"]+" <= mpu_wdata"+register_name.fields_data[i]["bit_position"]+";", rtl_write)
+    module_write("    end //}", rtl_write)
+    module_write("  end //}", rtl_write)
+	
+def rw_non_volatile_generate(register_name, i, rtl_write):
+    '''
+	This function is executed only when strobe is 1.
+	For fields which is are only FW RW and bitWidth is > 1, this function is executed
+    '''
+    module_write("  assign rst_"+register_name.fields_data[i]["actual_name"]+ " = "+register_name.fields_data[i]["_resetValue_"]+";\n", rtl_write)
+    module_write("  generate\n  for(i = 0; i < "+str(register_name.fields_data[i]["bitWidth"])+"; i = i+1) begin : GENERATE_"+register_name.fields_data[i]["actual_name"].upper()+" //{", rtl_write)
+    field_name = register_name.fields_data[i]["actual_name"].upper()
+    module_write("  "+first_line+" //{", rtl_write)
+    module_write("      if (~reset_n)", rtl_write)
+    module_write("        "+register_name.fields_data[i]["actual_name"]+"[i] <= rst_"+register_name.fields_data[i]["actual_name"]+"[i];", rtl_write)
+    module_write("      else begin //{", rtl_write)
+    module_write("        if ("+register_name.register["write_signal_name_strobe"]+"["+str(register_name.fields_data[i]["bitOffset"])+"+i])", rtl_write)
+    module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i];", rtl_write)
+    module_write("      end //}", rtl_write)
+    module_write("    end //}", rtl_write)
+    module_write("  end //}", rtl_write)
+    module_write("  endgenerate", rtl_write)
 
 	
 def rw_volatile(register_name,i, rtl_write):
+	'''
+	Register is changed by both HW and SW
+	This function is executed if the field is single bit
+	'''
 	field_name = register_name.fields_data[i]["actual_name"].upper()
 	module_write(first_line+" : " +field_name.lower()+"_blk //{", rtl_write)
 	module_write("    if (~reset_n)", rtl_write)
 	module_write("      "+register_name.fields_data[i]["actual_name"]+" <= "+register_name.fields_data[i]["_resetValue_"]+";", rtl_write)
 	module_write("    else begin //{", rtl_write)
+	if strobe:
+		signal_name = register_name.register["write_signal_name_strobe"]+"["+str(register_name.fields_data[i]["bitOffset"])+"+i]"
+	else:
+		signal_name = register_name.register["write_signal_name"]
+	    
 	if (register_name.fields_data[i]["_sysrdl_precedence_"] == True):
 		module_write("      // FW has higher precedence", rtl_write)
 		if re.match("1S",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("      if ("+register_name.register["write_signal_name"]+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & ~|"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("      if ("+signal_name+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & ~|"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b1}};", rtl_write)
 		elif re.match("1C",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("      if ("+register_name.register["write_signal_name"]+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("      if ("+signal_name+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b0}};", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "C":
-			module_write("      if ("+register_name.register["write_signal_name"]+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("      if ("+signal_name+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b0}};", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "T":
-			module_write("      if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("      if ("+signal_name+ ")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= ~"+register_name.fields_data[i]["actual_name"]+";", rtl_write)
 		else:
-			module_write("      if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("      if ("+signal_name+ ")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= mpu_wdata"+register_name.fields_data[i]["bit_position"]+";", rtl_write)
 		module_write("      else if ("+register_name.fields_data[i]["ro_name_en"]+")", rtl_write)
 		module_write("        "+register_name.fields_data[i]["actual_name"]+" <= "+register_name.fields_data[i]["ro_name"]+";", rtl_write)
@@ -113,19 +147,19 @@ def rw_volatile(register_name,i, rtl_write):
 		module_write("      if ("+register_name.fields_data[i]["ro_name_en"]+")", rtl_write)
 		module_write("        "+register_name.fields_data[i]["actual_name"]+" <= "+register_name.fields_data[i]["ro_name"]+";", rtl_write)
 		if re.match("1S",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("      else if ("+register_name.register["write_signal_name"]+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & ~|"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("      else if ("+signal_name+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & ~|"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b1}};", rtl_write)
 		elif re.match("1C",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("      else if ("+register_name.register["write_signal_name"]+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("      else if ("+signal_name+ " & |mpu_wdata"+register_name.fields_data[i]["bit_position"]+" & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b0}};", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "C":
-			module_write("      else if ("+register_name.register["write_signal_name"]+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("      else if ("+signal_name+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b0}};", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "T":
-			module_write("      else if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("      else if ("+signal_name+ ")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= ~"+register_name.fields_data[i]["actual_name"]+";", rtl_write)
 		else:
-			module_write("      else if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("      else if ("+signal_name+ ")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+" <= mpu_wdata"+register_name.fields_data[i]["bit_position"]+";", rtl_write)
 	module_write("    end //}", rtl_write)
 	module_write("  end //}", rtl_write)
@@ -133,10 +167,14 @@ def rw_volatile(register_name,i, rtl_write):
 
 
 	
-def rw_volatile_generate(register_name,i, rtl_write):
+def rw_volatile_generate(register_name,i, rtl_write, strobe = 0):
 	module_write("  assign rst_"+register_name.fields_data[i]["actual_name"]+ " = "+register_name.fields_data[i]["_resetValue_"]+";\n", rtl_write)
 	module_write("  generate\n  for(i = 0; i < "+str(register_name.fields_data[i]["bitWidth"])+"; i = i+1) begin : GENERATE_"+register_name.fields_data[i]["actual_name"].upper()+" //{", rtl_write)
 	field_name = register_name.fields_data[i]["actual_name"].upper()
+	if strobe:
+		signal_name = register_name.register["write_signal_name_strobe"]+"["+str(register_name.fields_data[i]["bitOffset"])+"+i]"
+	else:
+		signal_name = register_name.register["write_signal_name"]
 	module_write("  "+first_line+" //{", rtl_write)
 	module_write("      if (~reset_n)", rtl_write)
 	module_write("        "+register_name.fields_data[i]["actual_name"]+"[i] <= rst_"+register_name.fields_data[i]["actual_name"]+"[i];", rtl_write)
@@ -144,19 +182,19 @@ def rw_volatile_generate(register_name,i, rtl_write):
 	if (register_name.fields_data[i]["_sysrdl_precedence_"] == True):
 		module_write("        // FW has higher precedence", rtl_write)
 		if re.match("1S",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("        if ("+register_name.register["write_signal_name"]+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & ~"+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
+			module_write("        if ("+signal_name+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & ~"+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= 1'b1;", rtl_write)
 		elif re.match("1C",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("        if ("+register_name.register["write_signal_name"]+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & "+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
+			module_write("        if ("+signal_name+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & "+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= 1'b0;", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "C":
-			module_write("        if ("+register_name.register["write_signal_name"]+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("        if ("+signal_name+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b0}};", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "T":
-			module_write("        if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("        if ("+signal_name+ ")", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= ~"+register_name.fields_data[i]["actual_name"]+"[i];", rtl_write)
 		else:
-			module_write("        if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("        if ("+signal_name+ ")", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i];", rtl_write)
 		module_write("        else if ("+register_name.fields_data[i]["ro_name_en"]+"[i])", rtl_write)
 		module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= "+register_name.fields_data[i]["ro_name"]+"[i];", rtl_write)
@@ -166,19 +204,19 @@ def rw_volatile_generate(register_name,i, rtl_write):
 		module_write("        if ("+register_name.fields_data[i]["ro_name_en"]+"[i])", rtl_write)
 		module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= "+register_name.fields_data[i]["ro_name"]+"[i];", rtl_write)
 		if re.match("1S",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("        else if ("+register_name.register["write_signal_name"]+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & ~"+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
+			module_write("        else if ("+signal_name+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & ~"+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= 1'b1;", rtl_write)
 		elif re.match("1C",register_name.fields_data[i]["modifiedWriteValue"]):
-			module_write("        else if ("+register_name.register["write_signal_name"]+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & "+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
+			module_write("        else if ("+signal_name+ " & mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i] & "+register_name.fields_data[i]["actual_name"]+"[i])", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= 1'b0;", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "C":
-			module_write("        else if ("+register_name.register["write_signal_name"]+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
+			module_write("        else if ("+signal_name+ " & |"+register_name.fields_data[i]["actual_name"]+")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+"[i] <= {"+str(register_name.fields_data[i]["bitWidth"])+"{1'b0}};", rtl_write)
 		elif register_name.fields_data[i]["modifiedWriteValue"] == "T":
-			module_write("        else if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("        else if ("+signal_name+ ")", rtl_write)
 			module_write("        "+register_name.fields_data[i]["actual_name"]+"[i] <= ~"+register_name.fields_data[i]["actual_name"]+"[i];", rtl_write)
 		else:
-			module_write("        else if ("+register_name.register["write_signal_name"]+ ")", rtl_write)
+			module_write("        else if ("+signal_name+ ")", rtl_write)
 			module_write("          "+register_name.fields_data[i]["actual_name"]+"[i] <= mpu_wdata["+str(register_name.fields_data[i]["bitOffset"])+"+i];", rtl_write)
 	module_write("      end //}", rtl_write)
 	module_write("    end //}", rtl_write)
@@ -202,7 +240,7 @@ def search_for_blocks(name,regular_expression_start,regular_expression_end):
 class Register:
 
 	def __init__(self):
-		self.register = {"name":"","description":"","addressOffset":"","reset_n":"","no_of_fields":"","write_signal_name":"","read_signal_name":"","ro_name":""}
+		self.register = {"name":"","description":"","addressOffset":"","reset_n":"","no_of_fields":"","write_signal_name":"","read_signal_name":"","ro_name":"", "write_signal_name_strobe":""}
 		self.field    = {"name":"","actual_name":"","description":"","bitOffset":"","bitWidth":"","modifiedWriteValue":"","_sysrdl_precedence_":"","volatile":"","fw_access":"","hw_access":"","_resetValue_":"","bit_position":"","LSB":"","MSB":"","bit_square":"","ro_name":"","ro_name_en":"","generate":""}
 		self.fields_data = []
 		
@@ -222,14 +260,19 @@ def joining(i,end_character):
 			i+=1
 
 			
-def interface_names(total_registers, write_rtl, data_width = 32, addr_width = 32, align_space = 35):
-        
+def interface_names(total_registers, write_rtl, align_space = 35, strobe = 0):
+        '''
+		This prints all input and output signals
+		strobe parameter is to choose if the output signal should be there or not
+		'''
         module_write("  %-*s          clk," %(align_space-9,"input "), write_rtl)
         module_write("  %-*s          reset_n," %(align_space-9,"input "), write_rtl)
 	
         for i in range(len(total_registers.registers)):
 	        module_write("\n //"+total_registers.registers[i].register["name"]+" : " + total_registers.registers[i].register["addressOffset"], write_rtl)
 	        #module_write("  output wire          "+total_registers.registers[i].register["write_signal_name"]+",")
+	        if strobe:	
+	            module_write("  %-*s %s," %(align_space, "output wire [DATA_WIDTH - 1:0] ", total_registers.registers[i].register["write_signal_name_strobe"]), write_rtl)
 	        module_write("  %-*s %s," %(align_space, "output wire ", total_registers.registers[i].register["write_signal_name"]), write_rtl)
 	        module_write("  %-*s %s," %(align_space, "output wire", total_registers.registers[i].register["read_signal_name"]), write_rtl)
 	        module_write("  %-*s %s," %(align_space, "output reg  [DATA_WIDTH - 1:0] ", total_registers.registers[i].register["ro_name"]), write_rtl)
@@ -256,6 +299,8 @@ def interface_names(total_registers, write_rtl, data_width = 32, addr_width = 32
         module_write("  %-*s %s," %(align_space, "input       [DATA_WIDTH - 1:0] ", "mpu_wdata"), write_rtl)
         module_write("  %-*s %s," %(align_space, "input","mpu_we"), write_rtl)
         module_write("  %-*s %s," %(align_space, "input       [ADDR_WIDTH - 1 :0] ", "mpu_wr_addr"), write_rtl)
+        if strobe:
+            module_write("  %-*s %s," %(align_space, "input       [STROBE_WIDTH - 1 :0] ", "mpu_wr_strobe"), write_rtl)
         module_write("  %-*s %s," %(align_space, "output reg ","mpu_wready"), write_rtl)
         module_write("\n\n //Read Path", write_rtl)
         module_write("  %-*s %s," %(align_space, "output reg  [DATA_WIDTH - 1:0]","mpu_rdata"), write_rtl)
@@ -264,62 +309,82 @@ def interface_names(total_registers, write_rtl, data_width = 32, addr_width = 32
         module_write("  %-*s %s\n);\n\n"  %(align_space, "output reg", "mpu_rvalid"), write_rtl)
 
 
-def read_write_def(total_registers, rtl_write):
-	for i in range(len(total_registers.registers)):
-		module_write(" assign "+total_registers.registers[i].register["write_signal_name"]+" = mpu_we & (mpu_wr_addr == "+re.sub("0x","32'h",total_registers.registers[i].register["addressOffset"])+");", rtl_write)
-		module_write(" assign "+total_registers.registers[i].register["read_signal_name"] +" = mpu_re & (mpu_rd_addr == "+re.sub("0x","32'h",total_registers.registers[i].register["addressOffset"])+");\n\n", rtl_write)
-
-
-
-def writing_always(total_registers, rtl_write):
-	for i in range(len(total_registers.registers)):
-		module_write("\n\n\n //=================================================================================", rtl_write)
-		module_write(" // Register Name : "+total_registers.registers[i].register["name"], rtl_write)
-		module_write(" // Address       : "+total_registers.registers[i].register["addressOffset"], rtl_write)
-		module_write(" // Fields        : "+str(total_registers.registers[i].register["no_of_fields"]), rtl_write)
-		module_write(" // Description   : "+total_registers.registers[i].register["description"], rtl_write)
-		module_write(" //=================================================================================", rtl_write)
-		for j in range(total_registers.registers[i].register["no_of_fields"]) :
+def read_write_def(total_registers, rtl_write, data_width, strobe = 0):
+    '''
+	This function prints 3 sets of assign statements
+	1. FW Write decoding
+	2. FW Read Decoding
+	3. FW Write Strobe
+	'''
+    max_length = max_reg_name(total_registers, "write_signal_name_strobe") #This calculates the max width of the signal name
+    for i in range(len(total_registers.registers)):
+        addr = re.sub("0x","32'h",total_registers.registers[i].register["addressOffset"])
+        module_write("  %-*s = %s;" %(max_length + 10, "assign "+total_registers.registers[i].register["write_signal_name"], "mpu_we & (mpu_wr_addr == "+addr+")"), rtl_write)
+        module_write("  %-*s = %s;\n\n" %(max_length + 10, "assign "+total_registers.registers[i].register["read_signal_name"], "mpu_re & (mpu_rd_addr == "+addr+")"), rtl_write)
 	
-			if total_registers.registers[i].fields_data[j]["fw_access"] == "RW" or total_registers.registers[i].fields_data[j]["fw_access"] == "WO":
-				module_write("\n\n\n // Field Name    : "+total_registers.registers[i].fields_data[j]["name"], rtl_write)
-				module_write(" // Bit Position  : "+str(total_registers.registers[i].fields_data[j]["bit_position"]), rtl_write)
-				module_write(" // FW Access     : "+total_registers.registers[i].fields_data[j]["fw_access"]+total_registers.registers[i].fields_data[j]["modifiedWriteValue"], rtl_write)
-				module_write(" // HW Access     : "+total_registers.registers[i].fields_data[j]["hw_access"], rtl_write)
-				module_write(" // Description   : "+total_registers.registers[i].fields_data[j]["description"]+"\n", rtl_write)
+    if (strobe):
+        module_write("\n  generate\n  for(i = 0; i < STROBE_WIDTH; i = i + 1) begin : GENERATE_WRITE_SIGNAL_NAME_STROBE //{", rtl_write)
+        for i in range(len(total_registers.registers)):
+            addr = re.sub("0x","32'h",total_registers.registers[i].register["addressOffset"])
+            module_write("    %-*s = %s;" %(max_length + 22, "assign "+total_registers.registers[i].register["write_signal_name_strobe"]+"[(i*8) +: 8]", "{8{"+total_registers.registers[i].register["write_signal_name"]+" & mpu_wr_strobe[i]}}"), rtl_write)
+        module_write("  end //}", rtl_write)
+        module_write("  endgenerate //}", rtl_write)
+
+
+def writing_always(total_registers, rtl_write, data_width, strobe = 0):
+    for i in range(len(total_registers.registers)):
+        module_write("\n\n\n //=================================================================================", rtl_write)
+        module_write(" // Register Name : "+total_registers.registers[i].register["name"], rtl_write)
+        module_write(" // Address       : "+total_registers.registers[i].register["addressOffset"], rtl_write)
+        module_write(" // Fields        : "+str(total_registers.registers[i].register["no_of_fields"]), rtl_write)
+        module_write(" // Description   : "+total_registers.registers[i].register["description"], rtl_write)
+        module_write(" //=================================================================================", rtl_write)
+        for j in range(total_registers.registers[i].register["no_of_fields"]) :
+	
+            if total_registers.registers[i].fields_data[j]["fw_access"] == "RW" or total_registers.registers[i].fields_data[j]["fw_access"] == "WO":
+                module_write("\n\n\n // Field Name    : "+total_registers.registers[i].fields_data[j]["name"], rtl_write)
+                module_write(" // Bit Position  : "+str(total_registers.registers[i].fields_data[j]["bit_position"]), rtl_write)
+                module_write(" // FW Access     : "+total_registers.registers[i].fields_data[j]["fw_access"]+total_registers.registers[i].fields_data[j]["modifiedWriteValue"], rtl_write)
+                module_write(" // HW Access     : "+total_registers.registers[i].fields_data[j]["hw_access"], rtl_write)
+                module_write(" // Description   : "+total_registers.registers[i].fields_data[j]["description"]+"\n", rtl_write)
 				
-				if total_registers.registers[i].fields_data[j]["volatile"] == False:
-					rw_non_volatile(total_registers.registers[i],j, rtl_write)
-				elif total_registers.registers[i].fields_data[j]["generate"] == True: 
-					rw_volatile_generate(total_registers.registers[i],j, rtl_write)
-				else:
-					rw_volatile(total_registers.registers[i],j, rtl_write)
-#				if (total_registers.registers[i].fields_data[j]["modifiedWriteValue"] == "1S" and total_registers.registers[i].fields_data[j]["bitWidth"] > 1):
-#					module_write("  end //}\n  endgenerate\n\n")
+                if total_registers.registers[i].fields_data[j]["volatile"] == False:
+                    if strobe and total_registers.registers[i].fields_data[j]["bitWidth"] > 1:
+                        rw_non_volatile_generate(total_registers.registers[i], j, rtl_write)
+                    else:
+                        rw_non_volatile(total_registers.registers[i],j, rtl_write, strobe)
+                elif total_registers.registers[i].fields_data[j]["generate"] == True: 
+                    rw_volatile_generate(total_registers.registers[i],j, rtl_write, strobe)
+                else:
+                    rw_volatile(total_registers.registers[i],j, rtl_write)
+
 				
-		combo_always(total_registers,i, rtl_write)
+        combo_always(total_registers,i, rtl_write, data_width)
 
 
 def combo_always(total_registers,i, rtl_write, data_width = 32):
-		reg_name = total_registers.registers[i].register["name"]
-		address_val = total_registers.registers[i].register["addressOffset"]
-		module_write("\n\n always @(*) begin : "+reg_name.lower()+"_"+address_val+"_blk //{", rtl_write)
-		reg_len = len(total_registers.registers[i].register["ro_name"])
-		if total_registers.registers[i].fields_data[0]["bitWidth"] != data_width:
-			module_write("   %-*s = %s;" %(reg_len+12,total_registers.registers[i].register["ro_name"], "{DATA_WIDTH{1'b0}}"), rtl_write)
-		for j in range(total_registers.registers[i].register["no_of_fields"]) :
-			if total_registers.registers[i].fields_data[j]["fw_access"] == "RW":
-				module_write("   %-*s = %s;" %(reg_len + 12, total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"], total_registers.registers[i].fields_data[j]["actual_name"]), rtl_write)
-			elif total_registers.registers[i].fields_data[j]["fw_access"] == "WO":
-				module_write("   "+total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"]+ " = "+total_registers.registers[i].register["read_signal_name"]+" ? "+str(total_registers.registers[i].fields_data[j]["bitWidth"])+"'h0"+" : "+total_registers.registers[i].fields_data[j]["actual_name"]+";", rtl_write)
-			else:
-				module_write("   "+total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"]+ " = "+total_registers.registers[i].fields_data[j]["ro_name"]+";", rtl_write)
-		module_write(" end //}\n", rtl_write)
+        reg_name = total_registers.registers[i].register["name"]
+        address_val = total_registers.registers[i].register["addressOffset"]
+        module_write("\n\n always @(*) begin : "+reg_name.lower()+"_"+address_val+"_blk //{", rtl_write)
+        reg_len = len(total_registers.registers[i].register["ro_name"])
+        '''		
+        if total_registers.registers[i].fields_data[0]["bitWidth"] != data_width:
+        '''
+        module_write("   %-*s = %s;" %(reg_len+12,total_registers.registers[i].register["ro_name"], "{DATA_WIDTH{1'b0}}"), rtl_write)
+        
+        for j in range(total_registers.registers[i].register["no_of_fields"]) :
+            if total_registers.registers[i].fields_data[j]["fw_access"] == "RW":
+                module_write("   %-*s = %s;" %(reg_len + 12, total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"], total_registers.registers[i].fields_data[j]["actual_name"]), rtl_write)
+            elif total_registers.registers[i].fields_data[j]["fw_access"] == "WO":
+                module_write("   "+total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"]+ " = "+total_registers.registers[i].register["read_signal_name"]+" ? "+str(total_registers.registers[i].fields_data[j]["bitWidth"])+"'h0"+" : "+total_registers.registers[i].fields_data[j]["actual_name"]+";", rtl_write)
+            else:
+                module_write("   %-*s = %s;" %(reg_len + 12, total_registers.registers[i].register["ro_name"]+total_registers.registers[i].fields_data[j]["bit_position"], total_registers.registers[i].fields_data[j]["ro_name"]), rtl_write)
+        module_write(" end //}\n", rtl_write)
 
 
 
 
-def writing_always_read(total_registers,case, rtl_write):
+def writing_always_read(total_registers, case, rtl_write):
         module_write("\n\n\n\n\n //=================================================================================", rtl_write)
         module_write(" // SFR Reads", rtl_write)
         module_write(" //=================================================================================\n", rtl_write)
@@ -337,22 +402,26 @@ def writing_always_read(total_registers,case, rtl_write):
 
 
 
+def max_reg_name(total_registers, name):
+    max_length = 10
+    for i in range(len(total_registers.registers)):
+        if len(total_registers.registers[i].register[name]) > max_length:
+            max_length =  len(total_registers.registers[i].register[name])
+    return max_length
+
+
 
 def writing_always_read_case(total_registers, rtl_write):
-        max_length = 10
-        for i in range(len(total_registers.registers)):
-                if len(total_registers.registers[i].register["read_signal_name"]) > max_length:
-                        max_length =  len(total_registers.registers[i].register["read_signal_name"])
-                        logging.debug("Register name for Case statement is is %s" %(total_registers.registers[i].register["name"]))
-        module_write("  always @(*) begin //{", rtl_write)
-        module_write("    case (1'b1)", rtl_write)
+    max_length = max_reg_name(total_registers, "read_signal_name")
+    module_write("  always @(*) begin //{", rtl_write)
+    module_write("    case (1'b1)", rtl_write)
       
-        for i in range(len(total_registers.registers)):
-                #module_write("     "+total_registers.registers[i].register["read_signal_name"]+": mpu_rdata_combo = "+total_registers.registers[i].register["ro_name"]+";")
-                module_write("      %-*s : mpu_rdata_combo = %s;" %(max_length+2,total_registers.registers[i].register["read_signal_name"], total_registers.registers[i].register["ro_name"]), rtl_write)
-        module_write("      %-*s : mpu_rdata_combo = {DATA_WIDTH{1'b0}};" %(max_length+2,"default"), rtl_write)
-        module_write("   endcase", rtl_write)
-        module_write(" end //}", rtl_write)
+    for i in range(len(total_registers.registers)):
+        #module_write("     "+total_registers.registers[i].register["read_signal_name"]+": mpu_rdata_combo = "+total_registers.registers[i].register["ro_name"]+";")
+        module_write("      %-*s : mpu_rdata_combo = %s;" %(max_length+2,total_registers.registers[i].register["read_signal_name"], total_registers.registers[i].register["ro_name"]), rtl_write)
+    module_write("      %-*s : mpu_rdata_combo = {DATA_WIDTH{1'b0}};" %(max_length+2,"default"), rtl_write)
+    module_write("   endcase", rtl_write)
+    module_write(" end //}", rtl_write)
 
 
 def reg_ro(total_registers):
@@ -364,18 +433,18 @@ def reg_ro(total_registers):
 	module_write("//============================================================================/n/n", rtl_write)
 
 
-def wire_declaration(total_registers, case, write_rtl, align_space = 35):
-        module_write("//==============================Wire Declaration==============================\n", write_rtl)
-        for i in range(len(total_registers.registers)):
-                for j in range(total_registers.registers[i].register["no_of_fields"]):
-                        if total_registers.registers[i].fields_data[j]["generate"]:
-                                module_write("  %-*s %s;" %(align_space, "wire        "+total_registers.registers[i].fields_data[j]["bit_square"], "rst_"+total_registers.registers[i].fields_data[j]["actual_name"]), write_rtl)
-        if case:
-                module_write("  %-*s %s;\n" %(align_space, "reg         [DATA_WIDTH - 1:0] ", "mpu_rdata_combo"), write_rtl)
-        else:
-                module_write("  %-*s %s;\n" %(align_space, "wire        [DATA_WIDTH - 1:0] ", "mpu_rdata_combo"), write_rtl)
-        module_write("  genvar       i;\n", write_rtl)
-        module_write("//============================================================================\n\n", write_rtl)
+def wire_declaration(total_registers, case, write_rtl, align_space = 35, strobe = 0):
+    module_write("//==============================Wire Declaration==============================\n", write_rtl)
+    for i in range(len(total_registers.registers)):
+        for j in range(total_registers.registers[i].register["no_of_fields"]):
+            if (strobe and total_registers.registers[i].fields_data[j]["bitWidth"] > 1) or total_registers.registers[i].fields_data[j]["generate"]:
+                module_write("  %-*s %s;" %(align_space, "wire        "+total_registers.registers[i].fields_data[j]["bit_square"], "rst_"+total_registers.registers[i].fields_data[j]["actual_name"]), write_rtl)
+    if case:
+        module_write("  %-*s %s;\n" %(align_space, "reg         [DATA_WIDTH - 1:0] ", "mpu_rdata_combo"), write_rtl)
+    else:
+        module_write("  %-*s %s;\n" %(align_space, "wire        [DATA_WIDTH - 1:0] ", "mpu_rdata_combo"), write_rtl)
+    module_write("  genvar       i;\n", write_rtl)
+    module_write("//============================================================================\n\n", write_rtl)
 
 def tapping_fields(i, registers):
 	count = i;
@@ -474,7 +543,7 @@ def tapping_fields(i, registers):
 		count = count + 1;
 
 
-def sfr_verilog_code(xml, module_name, data_width = 32, addr_width = 32):
+def sfr_verilog_code(xml, module_name, data_width = 32, addr_width = 32, strobe = 1):
         assert os.path.exists(xml), "xml does not exists in path %s" %(os.getcwd())
         sfr_module_name = module_name
         try:
@@ -520,6 +589,7 @@ def sfr_verilog_code(xml, module_name, data_width = 32, addr_width = 32):
                                                 register_obj.register["addressOffset"] = m.group(1).lower()
 
                                 if (register_obj.register["name"] != "" and register_obj.register["description"] != "" and register_obj.register["addressOffset"] != ""):
+                                        register_obj.register["write_signal_name_strobe"] = "fw_wr_"+register_obj.register["name"].lower()+"_strobe"
                                         register_obj.register["write_signal_name"] = "fw_wr_"+register_obj.register["name"].lower()
                                         register_obj.register["read_signal_name"] = "fw_rd_"+register_obj.register["name"].lower()
                                         register_obj.register["ro_name"] = register_obj.register["name"].lower()
@@ -554,15 +624,16 @@ def sfr_verilog_code(xml, module_name, data_width = 32, addr_width = 32):
         #module_write("*/\n\n")
 
         module_write("module "+sfr_module_name+" #(", rtl_write)
-        module_write("  parameter DATA_WIDTH     = "+str(data_width)+",", rtl_write)
-        module_write("  parameter STROBE_WIDTH   = DATA_WIDTH/8,", rtl_write)
-        module_write("  parameter ADDR_WIDTH     = "+str(addr_width)+") (\n", rtl_write)
-        interface_names(total_registers, rtl_write)
+        module_write("  %-*s  =  %s," %(30, "parameter DATA_WIDTH", str(data_width)), rtl_write)
+        if strobe:
+            module_write("  %-*s  =  %s," %(30, "parameter STROBE_WIDTH", "DATA_WIDTH/8"), rtl_write)
+        module_write("  %-*s  =  %s) (\n" %(30, "parameter ADDR_WIDTH", str(addr_width)), rtl_write)
+        interface_names(total_registers, rtl_write, strobe = strobe)
         #reg_ro(total_registers)
-        wire_declaration(total_registers, case, rtl_write)
+        wire_declaration(total_registers, case, rtl_write, 35, strobe)
         module_write("//==============================Functionality   ==============================\n\n", rtl_write)
-        read_write_def(total_registers, rtl_write)
-        writing_always(total_registers, rtl_write)
+        read_write_def(total_registers, rtl_write, data_width, strobe)
+        writing_always(total_registers, rtl_write, data_width, strobe)
         writing_always_read(total_registers, case, rtl_write)
         mpu_always(rtl_write)
         module_write("\n\n//$Log: "+sfr_module_name+".v,v $\n", rtl_write)	
