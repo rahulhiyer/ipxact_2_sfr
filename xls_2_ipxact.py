@@ -14,7 +14,7 @@ import sys
 import os
 import shutil
 import datetime
-import sfr_code
+import ipxact_2_sfr
 
 #logging.basicConfig(level=logging.DEBUG,format='%(asctime)s - %(levelname)-10s - %(message)s')
 
