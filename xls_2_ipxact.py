@@ -8,7 +8,7 @@ import xlsxwriter
 import re
 import docx
 import time
-import openpyxl
+#import openpyxl
 import logging
 import sys
 import os
@@ -16,7 +16,7 @@ import shutil
 import datetime
 import sfr_code
 
-logging.basicConfig(level=logging.DEBUG,format='%(asctime)s - %(levelname)-10s - %(message)s')
+#logging.basicConfig(level=logging.DEBUG,format='%(asctime)s - %(levelname)-10s - %(message)s')
 
 
 class Register(object):
@@ -642,7 +642,7 @@ if sys.argv.count("-help") == 1:
     print("4. Right click on the attached file and save as a different name in your PC. (Remember step 2 to 4 is a work around the NASCA)")
     print("5. Open command prompt (Windows -> RUN -> cmd)")
     print("6. Navigate to the path where the exe file is saved.")
-    print("7. Type the command (sfr_file.exe -xls <File saved in Step-4> -sheet <> -m <>)")
+    print("7. Type the command (sfr_file.exe -xls <File saved in Step-4> -sheet <> -m <> -data_width <> -strobe)")
     print("In Step-7, -m is the module name of the verilog file to be generated")
     sys.exit(1)
     
@@ -652,20 +652,35 @@ if sys.argv.count("-xls") == 1:
     assert os.path.exists(workbook_name), "Workbook path does not exists"
     assert os.path.isfile(workbook_name), "Workbook should be a file not a folder"    
 else:
-    raise ValueError("Format of input is sfr_code.py -xls <xls> -sheet <sheet_name>")
+    raise ValueError("Format of input is sfr_code.py -xls <xls> -sheet <sheet_name> -m <> -data_width <>")
 
 if sys.argv.count("-sheet") == 1:
     sheet_name_index = sys.argv.index("-sheet")
     worksheet_name = sys.argv[sheet_name_index + 1]
 else:
-    raise ValueError("Format of input is sfr_code.py -xls <xls> -sheet <sheet_name>")
+    raise ValueError("Format of input is sfr_code.py -xls <xls> -sheet <sheet_name> -m <> -data_width <>")
 
 if sys.argv.count("-m") > 0:
     module_name = sys.argv[sys.argv.index("-m")+1].lower()
 else:
     module_name = worksheet_name.lower()
 
-    
+if sys.argv.count("-data_width") > 0:
+    data_width = int(sys.argv[sys.argv.index("-data_width")+1])
+else:
+    data_width = 32
+
+if sys.argv.count("-addr_width") > 0:
+    addr_width = int(sys.argv[sys.argv.index("-addr_width")+1])
+else:
+    addr_width = 32
+
+if sys.argv.count("-strobe") > 0:
+    strobe = 1
+else:
+    strobe = 0
+
+	
 date = str(datetime.date.today())
 new_folder_name = "sfr_files_" + date
 
@@ -676,7 +691,7 @@ os.chdir(os.path.dirname(workbook_name))
 
 
 reg_name_num = 1
-offset_address = 81920 ##In decimal
+
 
 register_start = False
 create_reserved_fields = False
@@ -807,7 +822,7 @@ for i in register_object:
 '''
 
 f_handler.close()
-sfr_code.sfr_verilog_code(module_name+".xml",module_name)
+sfr_code.sfr_verilog_code(module_name+".xml",module_name, data_width, addr_width, strobe)
 print("Files created in %s folder are as follows" %(os.getcwd()))
 for i in os.listdir(os.getcwd()):
     print(i)
